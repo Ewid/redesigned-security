@@ -12,8 +12,9 @@ from wtforms.validators import DataRequired
 import re
 from datetime import datetime, timedelta
 import secrets
-from datetime import datetime, timedelta
 import uuid
+import bleach
+import hashlib
 
 app = Flask(__name__)
 
@@ -34,6 +35,8 @@ app.config.update(
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+csrf = CSRFProtect(app)
+
 
 # Add these fields to User model
 class User(db.Model):
@@ -51,7 +54,9 @@ class Movie(db.Model):
     cast = db.Column(db.String(255), nullable=True)
     rating = db.Column(db.Float, nullable=True)
     image = db.Column(db.String(255), nullable=True)
+    file_hash = db.Column(db.String(64), nullable=True)  # Store file hash
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 # Add password validation
 def validate_password(password):
@@ -66,6 +71,45 @@ def validate_password(password):
     if not re.search("[!@#$%^&*(),.?\":{}|<>]", password):
         return False, "Password must contain special characters"
     return True, "Password is valid"
+
+# Add this to your secure input sanitization functions
+def sanitize_input(text):
+    if text is None:
+        return None
+    # Remove any potential XSS or harmful HTML/scripts
+    clean_text = bleach.clean(text, 
+        tags=[],  # No HTML tags allowed
+        strip=True,
+        strip_comments=True
+    )
+    return clean_text
+
+def secure_filename_with_hash(filename):
+    """Generate a secure filename with content hash"""
+    name, ext = os.path.splitext(filename)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    random_hex = secrets.token_hex(8)
+    return f"{timestamp}_{random_hex}{ext}"
+
+# Add file type validation
+def validate_file_type(file):
+    # Read the first few bytes to check actual file type
+    header = file.read(512)
+    file.seek(0)  # Reset file pointer
+    
+    # List of allowed file signatures (magic numbers)
+    ALLOWED_SIGNATURES = {
+        b'\xFF\xD8\xFF': 'jpg',
+        b'\x89PNG\r\n\x1a\n': 'png',
+        b'GIF87a': 'gif',
+        b'GIF89a': 'gif'
+    }
+
+        
+    for signature, filetype in ALLOWED_SIGNATURES.items():
+        if header.startswith(signature):
+            return True
+    return False
 
 
 @app.route('/')
@@ -166,42 +210,93 @@ def login():
     return render_template('login.html')
 
 @app.route('/dashboard', methods=['GET', 'POST'])
+@require_auth
 def dashboard():
-    if 'user_id' not in session:
+    user_id = session.get('user_id')
+    user = User.query.get_or_404(user_id)
+
+    if user.session_id != session.get('session_id'):
+        session.clear()
         return redirect(url_for('login'))
-    
-    user_id = session['user_id']
-    user = User.query.get(user_id)
-    
+
     if request.method == 'POST':
         try:
-            movie_name = request.form['movie_name']
-            cast = request.form['cast']
-            rating = request.form['rating']
-            image = request.files['image']
+            # CSRF token is automatically checked by Flask-WTF
+            
+            # Sanitize text inputs
+            movie_name = sanitize_input(request.form.get('movie_name'))
+            cast = sanitize_input(request.form.get('cast'))
+            rating = request.form.get('rating')
+            image = request.files.get('image')
 
-            if movie_name and image:
-                filename = secure_filename(image.filename)
-                image_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-                image.save(image_path)
+            if not movie_name or not image:
+                flash('Movie name and image are required!', 'error')
+                return redirect(url_for('dashboard'))
+
+            # Validate and secure file upload
+            if not validate_file_type(image):
+                flash('Invalid file type or potentially dangerous file', 'error')
+                return redirect(url_for('dashboard'))
+
+            # Generate secure filename
+            filename = secure_filename_with_hash(image.filename)
+            
+            # Ensure upload directory is secure
+            upload_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            upload_path = os.path.abspath(upload_path)
+            if not upload_path.startswith(os.path.abspath(app.config['UPLOAD_FOLDER'])):
+                flash('Invalid file path detected', 'error')
+                return redirect(url_for('dashboard'))
+
+            # Scan file content before saving
+            try:
+                image_data = image.read()
+                if len(image_data) > 5 * 1024 * 1024:  # 5MB limit
+                    flash('File size too large', 'error')
+                    return redirect(url_for('dashboard'))
                 
-                new_movie = Movie(
-                    name=movie_name,
-                    cast=cast,
-                    rating=rating,
-                    image=filename,
-                    user_id=user_id
-                )
-                db.session.add(new_movie)
-                db.session.commit()
-                flash('Movie added successfully!')
-            else:
-                flash('Movie name and image are required!')
-        except:
-            flash('Error adding movie!')
+                # Calculate file hash
+                file_hash = hashlib.sha256(image_data).hexdigest()
+                
+                # Reset file pointer and save
+                image.seek(0)
+                image.save(upload_path)
+            except Exception as e:
+                flash('Error processing file', 'error')
+                return redirect(url_for('dashboard'))
+
+            # Validate rating
+            try:
+                rating = float(rating) if rating else None
+                if rating is not None and not (0 <= rating <= 10):
+                    raise ValueError
+            except ValueError:
+                flash('Rating must be a number between 0 and 10', 'error')
+                return redirect(url_for('dashboard'))
+
+            # Add to database with file hash
+            new_movie = Movie(
+                name=movie_name,
+                cast=cast,
+                rating=rating,
+                image=filename,
+                file_hash=file_hash,  # Add this field to Movie model
+                user_id=user_id
+            )
+            db.session.add(new_movie)
+            db.session.commit()
+            flash('Movie added successfully!', 'success')
+            
+        except Exception as e:
+            db.session.rollback()
+            # Log the error securely
+            app.logger.error(f'Error adding movie: {str(e)}')
+            flash('Error adding movie', 'error')
 
     movies = Movie.query.filter_by(user_id=user_id).all()
-    return render_template('dashboard.html', movies=movies, username=user.username)
+    return render_template('dashboard.html', 
+                         movies=movies, 
+                         username=user.username)
 
 # Add secure logout
 @app.route('/logout')
@@ -231,4 +326,7 @@ def add_security_headers(response):
 if __name__ == '__main__':
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
+    with app.app_context():
+        db.drop_all()
+        db.create_all()
     app.run(debug=True)
