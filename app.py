@@ -8,6 +8,8 @@ from flask_wtf.csrf import CSRFProtect
 from flask_wtf import FlaskForm
 from wtforms import StringField, SubmitField
 from wtforms.validators import DataRequired
+import re
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.config.update(
@@ -20,12 +22,13 @@ app.config.update(
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
-# Basic Models
+# Add these fields to User model
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(150), unique=True, nullable=False)
     password = db.Column(db.String(150), nullable=False)
-    movies = db.relationship('Movie', backref='user', lazy=True)
+    failed_login_attempts = db.Column(db.Integer, default=0)  # Add this
+    locked_until = db.Column(db.DateTime)  # Add this
 
 class Movie(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -34,6 +37,21 @@ class Movie(db.Model):
     rating = db.Column(db.Float, nullable=True)
     image = db.Column(db.String(255), nullable=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+# Add password validation
+def validate_password(password):
+    if len(password) < 12:
+        return False, "Password must be at least 12 characters long"
+    if not re.search("[a-z]", password):
+        return False, "Password must contain lowercase letters"
+    if not re.search("[A-Z]", password):
+        return False, "Password must contain uppercase letters"
+    if not re.search("[0-9]", password):
+        return False, "Password must contain numbers"
+    if not re.search("[!@#$%^&*(),.?\":{}|<>]", password):
+        return False, "Password must contain special characters"
+    return True, "Password is valid"
+
 
 @app.route('/')
 def index():
@@ -46,20 +64,33 @@ def register():
             username = request.form['username']
             password = request.form['password']
             
+            # Validate password
+            is_valid, message = validate_password(password)
+            if not is_valid:
+                flash(message, 'error')
+                return render_template('register.html')
+
             if User.query.filter_by(username=username).first():
                 flash('Username already exists!', 'error')
                 return render_template('register.html')
 
-            hashed_password = generate_password_hash(password)
+            # Use stronger hashing with increased iterations
+            hashed_password = generate_password_hash(
+                password, 
+                method='pbkdf2:sha256', 
+                salt_length=16
+            )
             new_user = User(username=username, password=hashed_password)
             db.session.add(new_user)
             db.session.commit()
             flash('Registration successful!', 'success')
             return redirect(url_for('login'))
-        except:
+        except Exception as e:
+            db.session.rollback()
             flash('Registration failed!', 'error')
     return render_template('register.html')
 
+# Update login route with brute force protection
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -67,10 +98,34 @@ def login():
         password = request.form['password']
         user = User.query.filter_by(username=username).first()
         
+        # Check if account is locked
+        if user and user.locked_until and datetime.utcnow() < user.locked_until:
+            remaining_time = (user.locked_until - datetime.utcnow()).seconds / 60
+            flash(f'Account is locked for {remaining_time:.0f} more minutes.', 'error')
+            return render_template('login.html')
+
         if user and check_password_hash(user.password, password):
+            # Reset failed attempts on successful login
+            user.failed_login_attempts = 0
+            user.locked_until = None
+            db.session.commit()
+            
+            session.permanent = True
             session['user_id'] = user.id
             return redirect(url_for('dashboard'))
-        flash('Invalid credentials', 'error')
+        else:
+            if user:
+                # Increment failed attempts
+                user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+                if user.failed_login_attempts >= 5:
+                    user.locked_until = datetime.utcnow() + timedelta(minutes=15)
+                    flash('Too many failed attempts. Account locked for 15 minutes.', 'error')
+                else:
+                    flash(f'Invalid credentials. {5 - user.failed_login_attempts} attempts remaining.', 'error')
+                db.session.commit()
+            else:
+                flash('Invalid credentials', 'error')
+
     return render_template('login.html')
 
 @app.route('/dashboard', methods=['GET', 'POST'])
@@ -120,5 +175,6 @@ if __name__ == '__main__':
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     with app.app_context():
-        db.create_all()
+        db.drop_all()  # This will drop all existing tables
+        db.create_all()  # This will create new tables with the updated schema
     app.run(debug=True)
