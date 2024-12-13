@@ -1,11 +1,9 @@
-<!-- dashboard.html -->
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
+
 {% block content %}
 <h1>Movie Dashboard - Welcome {{ username|e }}!</h1>
 <form method="POST" enctype="multipart/form-data" class="secure-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    
     <label for="movie_name">Movie Name:</label>
     <input type="text" id="movie_name" name="movie_name" required maxlength="255" pattern="[A-Za-z0-9\s\-:,.]+"
            title="Movie name can only contain letters, numbers, spaces, and basic punctuation">
@@ -27,4 +25,12 @@
 <ul>
     {% for movie in movies %}
     <li>
-        <img src="{{ url_for('static', filename='uploads/' + movie.image) }}" alt="Movie Image"
+        <img src="{{ url_for('static', filename='uploads/' + movie.image) }}" alt="Movie Image" width="100">
+        <p><strong>{{ movie.name }}</strong></p>
+        <p>Cast: {{ movie.cast }}</p>
+        <p>Rating: {{ movie.rating }}</p>
+    </li>
+    {% endfor %}
+</ul>
+<a href="{{ url_for('logout') }}">Logout</a>
+{% endblock %}

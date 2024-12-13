@@ -1,21 +1,13 @@
-<!-- register.html -->
 {% extends "base.html" %}
 {% block title %}Register{% endblock %}
+
 {% block content %}
 <h1>Register</h1>
-<form method="POST" class="secure-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label for="username">Username:</label>
-    <input type="text" id="username" name="username" required pattern="[a-zA-Z0-9_-]{3,20}" 
-           title="Username must be between 3 and 20 characters and can only contain letters, numbers, underscores, and hyphens"
-           autocomplete="username">
-    
-    <label for="password">Password:</label>
-    <input type="password" id="password" name="password" required minlength="12"
-           pattern="^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{12,}$"
-           title="Password must be at least 12 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character"
-           autocomplete="new-password">
-    
+<form method="POST">
+    <label>Username:</label>
+    <input type="text" name="username" required><br>
+    <label>Password:</label>
+    <input type="password" name="password" required><br>
     <button type="submit">Register</button>
 </form>
 <a href="{{ url_for('login') }}">Already have an account? Login</a>

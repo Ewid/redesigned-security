@@ -1,11 +1,8 @@
-<link rel="stylesheet" type="text/css" href="/static/style.css">
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Home</title>
-</head>
-<body>
-    <h1>Welcome to the Security CW2 App</h1>
-    <a href="/login">Login</a> | <a href="/register">Register</a>
-</body>
-</html>
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+
+{% block content %}
+<h1>Welcome to the Movie App</h1>
+<a href="{{ url_for('login') }}">Login</a> | 
+<a href="{{ url_for('register') }}">Register</a>
+{% endblock %}
