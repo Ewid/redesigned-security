@@ -344,35 +344,60 @@ def forgot_password():
 def verify_security_questions():
     username = session.get('reset_username')
     if not username:
+        flash('Please start the password reset process from the beginning', 'warning')
         return redirect(url_for('forgot_password'))
     
     user = User.query.filter_by(username=username).first()
     if not user:
+        flash('Invalid reset request. Please try again', 'error')
         return redirect(url_for('forgot_password'))
     
     user_questions = SecurityQuestion.query.filter_by(user_id=user.id).all()
+    if not user_questions:
+        flash('Security questions not set up for this account. Please contact support.', 'error')
+        return redirect(url_for('login'))
     
     if request.method == 'POST':
-        correct_answers = 0
-        for q in user_questions:
-            answer = request.form.get(f'answer{q.id}')
-            if answer and check_password_hash(q.answer_hash, answer.lower().strip()):
-                correct_answers += 1
-        
-        if correct_answers == len(user_questions):
-            session['can_reset_password'] = True
-            session['reset_user_id'] = user.id
-            return redirect(url_for('reset_password'))
-        else:
-            flash('One or more answers were incorrect', 'error')
+        try:
+            correct_answers = 0
+            total_questions = len(user_questions)
+            
+            for q in user_questions:
+                answer = request.form.get(f'answer{q.id}')
+                if not answer:
+                    flash('All security questions must be answered', 'warning')
+                    return redirect(url_for('verify_security_questions'))
+                    
+                if check_password_hash(q.answer_hash, answer.lower().strip()):
+                    correct_answers += 1
+            
+            if correct_answers == total_questions:
+                session['can_reset_password'] = True
+                session['reset_user_id'] = user.id
+                flash('Security questions verified successfully', 'success')
+                return redirect(url_for('reset_password'))
+            else:
+                remaining_attempts = 3 - session.get('failed_attempts', 0)
+                session['failed_attempts'] = session.get('failed_attempts', 0) + 1
+                
+                if remaining_attempts <= 0:
+                    session.clear()
+                    flash('Too many failed attempts. Please try again later.', 'error')
+                    return redirect(url_for('login'))
+                    
+                flash(f'One or more answers were incorrect. {remaining_attempts} attempts remaining.', 'error')
+                
+        except Exception as e:
+            app.logger.error(f'Error during security verification: {str(e)}')
+            flash('An error occurred during verification. Please try again.', 'error')
     
-    # Get the actual questions for display
-    questions = []
-    for q in user_questions:
-        question_text = SECURITY_QUESTIONS[q.question_category][q.question_index - 1]
-        questions.append({'id': q.id, 'text': question_text})
+    questions = [{'id': q.id, 'text': SECURITY_QUESTIONS[q.question_category][q.question_index]} 
+                for q in user_questions]
     
-    return render_template('verify_security_questions.html', questions=questions)
+    return render_template('verify_security_questions.html', 
+                         questions=questions,
+                         username=user.username)
+
 # Update login route with session security
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("10 per minute")

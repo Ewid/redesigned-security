@@ -2,22 +2,44 @@
 {% block title %}Security Verification{% endblock %}
 
 {% block content %}
-<h1>Security Verification</h1>
-<p>Please answer your security questions to reset your password.</p>
-
-<form method="POST" class="secure-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    {% for question in questions %}
-    <div class="question-group">
-        <label>{{ question.text }}</label>
-        <input type="text" name="answer{{ question.id }}" required 
-               placeholder="Enter your answer">
+<div class="security-questions-container">
+    <h1>Security Verification</h1>
+    
+    <div class="security-progress">
+        <div class="progress-indicator">
+            <div class="progress-step completed">1</div>
+            <div class="progress-step active">2</div>
+            <div class="progress-step">3</div>
+        </div>
+        <p>Step 2: Answer Your Security Questions</p>
     </div>
-    {% endfor %}
-    <button type="submit">Verify Answers</button>
-</form>
 
-<div class="auth-links">
-    <a href="{{ url_for('login') }}">Back to Login</a>
+    <div class="secure-form">
+        <p class="form-description">Please answer your security questions exactly as you entered them during setup.</p>
+        
+        <form method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+            {% for question in questions %}
+            <div class="question-group">
+                <label>{{ question.text }}</label>
+                <div class="form-group">
+                    <input type="text" 
+                           name="answer{{ question.id }}" 
+                           required 
+                           placeholder="Enter your answer"
+                           autocomplete="off">
+                </div>
+            </div>
+            {% endfor %}
+
+            <button type="submit" class="submit-btn">Verify Answers</button>
+        </form>
+    </div>
+
+    <div class="auth-links">
+        <a href="{{ url_for('forgot_password') }}">Back to Reset Options</a> |
+        <a href="{{ url_for('login') }}">Back to Login</a>
+    </div>
 </div>
 {% endblock %}
