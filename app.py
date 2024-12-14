@@ -1,6 +1,6 @@
 from functools import wraps
 import os
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask import Flask, abort, render_template, request, redirect, url_for, session, flash
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -15,6 +15,11 @@ import secrets
 import uuid
 import bleach
 import hashlib
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+import logging
+from logging.handlers import RotatingFileHandler
+from zxcvbn import zxcvbn
 
 app = Flask(__name__)
 
@@ -37,6 +42,12 @@ db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 csrf = CSRFProtect(app)
 
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
+
 
 # Add these fields to User model
 class User(db.Model):
@@ -57,6 +68,30 @@ class Movie(db.Model):
     file_hash = db.Column(db.String(64), nullable=True)  # Store file hash
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# Setup secure logging
+def setup_logging():
+    if not os.path.exists('logs'):
+        os.makedirs('logs')
+        
+    # Set up rotating file handler
+    file_handler = RotatingFileHandler(
+        'logs/app.log',
+        maxBytes=10240,
+        backupCount=10
+    )
+    
+    # Set secure logging format
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(formatter)
+    
+    # Set logging level
+    file_handler.setLevel(logging.INFO)
+    app.logger.addHandler(file_handler)
+    app.logger.setLevel(logging.INFO)
 
 # Add password validation
 def validate_password(password):
@@ -136,6 +171,7 @@ def require_auth(f):
     return decorated
 
 @app.route('/register', methods=['GET', 'POST'])
+@limiter.limit("3 per minute")
 def register():
     if request.method == 'POST':
         try:
@@ -170,6 +206,7 @@ def register():
 
 # Update login route with session security
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
@@ -321,9 +358,77 @@ def add_security_headers(response):
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Referrer-Policy'] = 'same-origin'
     response.headers['X-Permitted-Cross-Domain-Policies'] = 'none'
+
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "img-src 'self' data:; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'"
+    )
     return response
 
+def check_ip_security(ip):
+    # You can implement IP blacklisting/whitelisting here
+    BLACKLISTED_IPS = set()  # Add known malicious IPs
+    if ip in BLACKLISTED_IPS:
+        return False
+    return True
+
+def check_password_strength(password):
+    result = zxcvbn(password)
+    if result['score'] < 3:
+        return False, result['feedback']['warning']
+    return True, "Password is strong enough"
+
+class AuditLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=True)
+    action = db.Column(db.String(50), nullable=False)
+    details = db.Column(db.Text)
+    ip_address = db.Column(db.String(45))
+    user_agent = db.Column(db.String(200))
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+def log_audit(user_id, action, details=None):
+    audit = AuditLog(
+        user_id=user_id,
+        action=action,
+        details=details,
+        ip_address=request.remote_addr,
+        user_agent=request.user_agent.string
+    )
+    db.session.add(audit)
+    db.session.commit()
+
+class ActiveSession(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    session_id = db.Column(db.String(36), unique=True, nullable=False)
+    ip_address = db.Column(db.String(45))
+    user_agent = db.Column(db.String(200))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    last_activity = db.Column(db.DateTime, default=datetime.utcnow)
+
+@app.before_request
+def update_session_activity():
+    if 'user_id' in session:
+        session_id = session.get('session_id')
+        active_session = ActiveSession.query.filter_by(session_id=session_id).first()
+        if active_session:
+            active_session.last_activity = datetime.utcnow()
+            db.session.commit()
+
+@app.before_request
+def security_check():
+    client_ip = request.remote_addr
+    if not check_ip_security(client_ip):
+        abort(403)  # Forbidden
+
 if __name__ == '__main__':
+    setup_logging()
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     with app.app_context():
