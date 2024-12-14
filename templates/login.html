@@ -1,9 +1,10 @@
+<!-- templates/login.html -->
 {% extends "base.html" %}
 {% block title %}Login{% endblock %}
 
 {% block content %}
 <h1>Login</h1>
-<form method="POST" enctype="multipart/form-data" class="secure-form">
+<form method="POST" class="secure-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label>Username:</label>
     <input type="text" name="username" required><br>
@@ -11,5 +12,8 @@
     <input type="password" name="password" required><br>
     <button type="submit">Login</button>
 </form>
-<a href="{{ url_for('register') }}">Don't have an account? Register</a>
+<div class="auth-links">
+    <a href="{{ url_for('forgot_password') }}">Forgot Password?</a> | 
+    <a href="{{ url_for('register') }}">Don't have an account? Register</a>
+</div>
 {% endblock %}

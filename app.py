@@ -2,13 +2,9 @@ from functools import wraps
 import os
 from flask import Flask, abort, render_template, request, redirect, url_for, session, flash
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
-from flask_wtf import FlaskForm
-from wtforms import StringField, SubmitField
-from wtforms.validators import DataRequired
 import re
 from datetime import datetime, timedelta
 import secrets
@@ -20,6 +16,7 @@ from flask_limiter.util import get_remote_address
 import logging
 from logging.handlers import RotatingFileHandler
 from zxcvbn import zxcvbn
+import hashlib
 
 app = Flask(__name__)
 
@@ -58,6 +55,7 @@ class User(db.Model):
     locked_until = db.Column(db.DateTime)
     session_id = db.Column(db.String(36))  # Add this for session tracking
     last_password_change = db.Column(db.DateTime, default=datetime.utcnow)  # Add this for password aging
+    security_questions = db.relationship('SecurityQuestion', backref='user', lazy=True)
     
 class Movie(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -68,6 +66,45 @@ class Movie(db.Model):
     file_hash = db.Column(db.String(64), nullable=True)  # Store file hash
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class PasswordHistory(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    password_hash = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class SecurityQuestion(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    question_category = db.Column(db.Integer, nullable=False)  # 1, 2, or 3
+    question_index = db.Column(db.Integer, nullable=False)    # index within category
+    answer_hash = db.Column(db.String(200), nullable=False)
+
+SECURITY_QUESTIONS = {
+    1: [
+        "What was your first pet's name?",
+        "What was the name of your first school?",
+        "What is your mother's maiden name?"
+    ],
+    2: [
+        "In what city were you born?",
+        "What was your childhood nickname?",
+        "What is the name of your favorite childhood friend?"
+    ],
+    3: [
+        "What street did you grow up on?",
+        "What was the make of your first car?",
+        "What was your favorite food as a child?"
+    ]
+}
+
+class DeviceFingerprint(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    fingerprint = db.Column(db.String(64), nullable=False)
+    user_agent = db.Column(db.String(200))
+    is_trusted = db.Column(db.Boolean, default=False)
+    last_seen = db.Column(db.DateTime, default=datetime.utcnow)
 
 # Setup secure logging
 def setup_logging():
@@ -92,6 +129,14 @@ def setup_logging():
     file_handler.setLevel(logging.INFO)
     app.logger.addHandler(file_handler)
     app.logger.setLevel(logging.INFO)
+
+def generate_device_fingerprint():
+    ua_string = request.user_agent.string
+    ip = request.remote_addr
+    platform = request.user_agent.platform
+    browser = request.user_agent.browser
+    fingerprint = f"{ua_string}|{ip}|{platform}|{browser}"
+    return hashlib.sha256(fingerprint.encode()).hexdigest()
 
 # Add password validation
 def validate_password(password):
@@ -171,7 +216,7 @@ def require_auth(f):
     return decorated
 
 @app.route('/register', methods=['GET', 'POST'])
-@limiter.limit("3 per minute")
+@limiter.limit("5 per minute")
 def register():
     if request.method == 'POST':
         try:
@@ -204,9 +249,133 @@ def register():
             flash('Registration failed!', 'error')
     return render_template('register.html')
 
+@app.route('/setup_security', methods=['GET', 'POST'])
+@require_auth
+def setup_security():
+    user = User.query.get(session['user_id'])
+    
+    if request.method == 'POST':
+        try:
+            # Delete any existing security questions
+            SecurityQuestion.query.filter_by(user_id=user.id).delete()
+            
+            for i in range(1, 4):
+                category = int(request.form.get(f'question{i}').split('_')[0])
+                index = int(request.form.get(f'question{i}').split('_')[1])
+                answer = request.form.get(f'answer{i}')
+                
+                if not answer:
+                    flash('All answers are required', 'error')
+                    return redirect(url_for('dashboard'))
+                
+                security_q = SecurityQuestion(
+                    user_id=user.id,
+                    question_category=category,
+                    question_index=index,
+                    answer_hash=generate_password_hash(answer.lower().strip())
+                )
+                db.session.add(security_q)
+            
+            db.session.commit()
+            flash('Security questions set successfully', 'success')
+            return redirect(url_for('dashboard'))
+            
+        except Exception as e:
+            db.session.rollback()
+            flash('Error setting up security questions', 'error')
+    
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/reset_password', methods=['GET', 'POST'])
+def reset_password():
+    if not session.get('can_reset_password') or not session.get('reset_user_id'):
+        return redirect(url_for('forgot_password'))
+    
+    if request.method == 'POST':
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if password != confirm_password:
+            flash('Passwords do not match', 'error')
+            return render_template('reset_password.html')
+            
+        # Validate password
+        is_valid, message = validate_password(password)
+        if not is_valid:
+            flash(message, 'error')
+            return render_template('reset_password.html')
+            
+        try:
+            user = User.query.get(session['reset_user_id'])
+            user.password = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
+            db.session.commit()
+            
+            # Clear all reset-related session data
+            session.pop('can_reset_password', None)
+            session.pop('reset_user_id', None)
+            session.pop('reset_username', None)
+            
+            flash('Password has been reset successfully', 'success')
+            return redirect(url_for('login'))
+        except:
+            flash('Error resetting password', 'error')
+    
+    return render_template('reset_password.html')
+
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        user = User.query.filter_by(username=username).first()
+        
+        if not user:
+            # Don't reveal if username exists
+            flash('If the username exists, security questions will be shown', 'info')
+            return render_template('forgot_password.html')
+        
+        # Store username in session for the next step
+        session['reset_username'] = username
+        return redirect(url_for('verify_security_questions'))
+    
+    return render_template('forgot_password.html')
+
+@app.route('/verify_security_questions', methods=['GET', 'POST'])
+def verify_security_questions():
+    username = session.get('reset_username')
+    if not username:
+        return redirect(url_for('forgot_password'))
+    
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return redirect(url_for('forgot_password'))
+    
+    user_questions = SecurityQuestion.query.filter_by(user_id=user.id).all()
+    
+    if request.method == 'POST':
+        correct_answers = 0
+        for q in user_questions:
+            answer = request.form.get(f'answer{q.id}')
+            if answer and check_password_hash(q.answer_hash, answer.lower().strip()):
+                correct_answers += 1
+        
+        if correct_answers == len(user_questions):
+            session['can_reset_password'] = True
+            session['reset_user_id'] = user.id
+            return redirect(url_for('reset_password'))
+        else:
+            flash('One or more answers were incorrect', 'error')
+    
+    # Get the actual questions for display
+    questions = []
+    for q in user_questions:
+        question_text = SECURITY_QUESTIONS[q.question_category][q.question_index - 1]
+        questions.append({'id': q.id, 'text': question_text})
+    
+    return render_template('verify_security_questions.html', questions=questions)
 # Update login route with session security
 @app.route('/login', methods=['GET', 'POST'])
-@limiter.limit("5 per minute")
+@limiter.limit("10 per minute")
 def login():
     if request.method == 'POST':
         username = request.form.get('username')
@@ -251,6 +420,11 @@ def login():
 def dashboard():
     user_id = session.get('user_id')
     user = User.query.get_or_404(user_id)
+
+    has_security_questions = SecurityQuestion.query.filter_by(user_id=user_id).count() == 3
+
+    if not has_security_questions:
+        flash('Please set up your security questions for account recovery', 'warning')
 
     if user.session_id != session.get('session_id'):
         session.clear()
@@ -333,7 +507,9 @@ def dashboard():
     movies = Movie.query.filter_by(user_id=user_id).all()
     return render_template('dashboard.html', 
                          movies=movies, 
-                         username=user.username)
+                         username=user.username,
+                         has_security_questions=has_security_questions,
+                         security_questions=SECURITY_QUESTIONS)
 
 # Add secure logout
 @app.route('/logout')
@@ -427,8 +603,18 @@ def security_check():
     if not check_ip_security(client_ip):
         abort(403)  # Forbidden
 
+def check_password_history(user, new_password):
+    """Prevent password reuse"""
+    history = PasswordHistory.query.filter_by(user_id=user.id)\
+        .order_by(PasswordHistory.created_at.desc())\
+        .limit(5).all()
+    
+    for old_password in history:
+        if check_password_hash(old_password.password_hash, new_password):
+            return False
+    return True
+
 if __name__ == '__main__':
-    setup_logging()
     if not os.path.exists(app.config['UPLOAD_FOLDER']):
         os.makedirs(app.config['UPLOAD_FOLDER'])
     with app.app_context():

@@ -3,35 +3,73 @@
 
 {% block content %}
 <h1>Movie Dashboard - Welcome {{ username|e }}!</h1>
-<form method="POST" enctype="multipart/form-data" class="secure-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label for="movie_name">Movie Name:</label>
-    <input type="text" id="movie_name" name="movie_name" required maxlength="255" pattern="[A-Za-z0-9\s\-:,.]+"
-           title="Movie name can only contain letters, numbers, spaces, and basic punctuation">
-    
-    <label for="cast">Cast:</label>
-    <input type="text" id="cast" name="cast" maxlength="255" pattern="[A-Za-z\s,.]+"
-           title="Cast names can only contain letters, spaces, and commas">
-    
-    <label for="rating">Rating:</label>
-    <input type="number" id="rating" name="rating" min="0" max="10" step="0.1">
-    
-    <label for="image">Upload Image:</label>
-    <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/gif" required>
-    
-    <button type="submit">Add Movie</button>
-</form>
 
-<h2>Movie List</h2>
-<ul>
-    {% for movie in movies %}
-    <li>
-        <img src="{{ url_for('static', filename='uploads/' + movie.image) }}" alt="Movie Image" width="100">
-        <p><strong>{{ movie.name }}</strong></p>
-        <p>Cast: {{ movie.cast }}</p>
-        <p>Rating: {{ movie.rating }}</p>
-    </li>
-    {% endfor %}
-</ul>
-<a href="{{ url_for('logout') }}">Logout</a>
+{% if not has_security_questions %}
+<div class="security-setup-section">
+    <h2>Setup Security Questions</h2>
+    <form method="POST" action="{{ url_for('setup_security') }}" class="secure-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        
+        {% for i in range(1, 4) %}
+        <div class="question-group">
+            <label for="question{{ i }}">Security Question {{ i }}:</label>
+            <select name="question{{ i }}" id="question{{ i }}" required>
+                <option value="">Select a question</option>
+                {% for category in [1, 2, 3] %}
+                    {% for question in security_questions[category] %}
+                        <option value="{{ category }}_{{ loop.index }}">{{ question }}</option>
+                    {% endfor %}
+                {% endfor %}
+            </select>
+            
+            <label for="answer{{ i }}">Your Answer:</label>
+            <input type="text" id="answer{{ i }}" name="answer{{ i }}" required 
+                   placeholder="Enter your answer">
+        </div>
+        {% endfor %}
+        
+        <button type="submit">Save Security Questions</button>
+    </form>
+{% endif %}
+
+<div class="movie-form-section">
+    <h2>Add New Movie</h2>
+    <form method="POST" enctype="multipart/form-data" class="secure-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        
+        <label for="movie_name">Movie Name:</label>
+        <input type="text" id="movie_name" name="movie_name" required maxlength="255" pattern="[A-Za-z0-9\s\-:,.]+"
+               title="Movie name can only contain letters, numbers, spaces, and basic punctuation">
+        
+        <label for="cast">Cast:</label>
+        <input type="text" id="cast" name="cast" maxlength="255" pattern="[A-Za-z\s,.]+"
+               title="Cast names can only contain letters, spaces, and commas">
+        
+        <label for="rating">Rating:</label>
+        <input type="number" id="rating" name="rating" min="0" max="10" step="0.1">
+        
+        <label for="image">Upload Image:</label>
+        <input type="file" id="image" name="image" accept="image/png,image/jpeg,image/gif" required>
+        
+        <button type="submit">Add Movie</button>
+    </form>
+</div>
+
+<div class="movie-list-section">
+    <h2>Movie List</h2>
+    <ul>
+        {% for movie in movies %}
+        <li>
+            <img src="{{ url_for('static', filename='uploads/' + movie.image) }}" alt="Movie Image" width="100">
+            <p><strong>{{ movie.name }}</strong></p>
+            <p>Cast: {{ movie.cast }}</p>
+            <p>Rating: {{ movie.rating }}</p>
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+
+<div class="logout-section">
+    <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+</div>
 {% endblock %}

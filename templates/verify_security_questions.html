@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Security Verification{% endblock %}
+
+{% block content %}
+<h1>Security Verification</h1>
+<p>Please answer your security questions to reset your password.</p>
+
+<form method="POST" class="secure-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% for question in questions %}
+    <div class="question-group">
+        <label>{{ question.text }}</label>
+        <input type="text" name="answer{{ question.id }}" required 
+               placeholder="Enter your answer">
+    </div>
+    {% endfor %}
+    <button type="submit">Verify Answers</button>
+</form>
+
+<div class="auth-links">
+    <a href="{{ url_for('login') }}">Back to Login</a>
+</div>
+{% endblock %}

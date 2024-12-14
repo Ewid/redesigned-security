@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Setup Security Questions{% endblock %}
+
+{% block content %}
+<h1>Setup Security Questions</h1>
+<p>Please choose three different security questions and provide answers</p>
+
+<form method="POST" class="secure-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    
+    {% for i in range(1, 4) %}
+    <div class="question-group">
+        <label for="question{{ i }}">Question {{ i }}:</label>
+        <select name="question{{ i }}" id="question{{ i }}" required>
+            <option value="">Select a question</option>
+            {% for question in questions[i] %}
+            <option value="{{ loop.index }}">{{ question }}</option>
+            {% endfor %}
+        </select>
+        
+        <label for="answer{{ i }}">Your Answer:</label>
+        <input type="text" id="answer{{ i }}" name="answer{{ i }}" required 
+               placeholder="Enter your answer">
+    </div>
+    {% endfor %}
+    
+    <button type="submit">Save Security Questions</button>
+</form>
+{% endblock %}
