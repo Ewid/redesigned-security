@@ -1,8 +1,32 @@
 {% extends "base.html" %}
-{% block title %}Home{% endblock %}
+{% block title %}Welcome{% endblock %}
 
 {% block content %}
-<h1>Welcome to the Movie App</h1>
-<a href="{{ url_for('login') }}">Login</a> | 
-<a href="{{ url_for('register') }}">Register</a>
+<div class="hero-section">
+    <div class="hero-content">
+        <h1 class="main-title">Welcome to Movie Collection</h1>
+        <p class="subtitle">Your secure personal movie database</p>
+        <div class="cta-buttons">
+            <a href="{{ url_for('login') }}" class="btn btn-primary">Login</a>
+            <a href="{{ url_for('register') }}" class="btn btn-secondary">Create Account</a>
+        </div>
+    </div>
+    <div class="hero-features">
+        <div class="feature-card">
+            <span class="feature-icon">🔒</span>
+            <h3>Secure Storage</h3>
+            <p>Your movie collection, protected with industry-standard security</p>
+        </div>
+        <div class="feature-card">
+            <span class="feature-icon">📱</span>
+            <h3>Easy Access</h3>
+            <p>Manage your collection from any device, anytime</p>
+        </div>
+        <div class="feature-card">
+            <span class="feature-icon">🎬</span>
+            <h3>Movie Details</h3>
+            <p>Keep track of ratings, cast, and more</p>
+        </div>
+    </div>
+</div>
 {% endblock %}

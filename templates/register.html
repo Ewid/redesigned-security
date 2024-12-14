@@ -2,14 +2,49 @@
 {% block title %}Register{% endblock %}
 
 {% block content %}
-<h1>Register</h1>
-<form method="POST" enctype="multipart/form-data" class="secure-form">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>Username:</label>
-    <input type="text" name="username" required><br>
-    <label>Password:</label>
-    <input type="password" name="password" required><br>
-    <button type="submit">Register</button>
-</form>
-<a href="{{ url_for('login') }}">Already have an account? Login</a>
+<div class="register-container">
+    <div class="register-card">
+        <div class="brand">
+            <h1>Create Account</h1>
+            <p>Join Movie Collection and start organizing your movies</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <form method="POST" class="register-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" 
+                       id="username" 
+                       name="username" 
+                       required 
+                       placeholder="Choose your username">
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" 
+                       id="password" 
+                       name="password" 
+                       required 
+                       placeholder="Create a strong password">
+                <small class="helper-text">Must be at least 12 characters long with letters, numbers & symbols</small>
+            </div>
+
+            <button type="submit" class="register-button">Create Account</button>
+        </form>
+
+        <div class="form-footer">
+            <p>Already have an account? <a href="{{ url_for('login') }}">Login here</a></p>
+        </div>
+    </div>
+</div>
 {% endblock %}
