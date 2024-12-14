@@ -372,3 +372,94 @@ button:hover {
     color: var(--text-color);
     margin-bottom: 2rem;
 }
+
+<style>
+.reset-container {
+    max-width: 400px;
+    margin: 40px auto;
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+h1 {
+    text-align: center;
+    color: #333;
+    margin-bottom: 10px;
+}
+
+.instructions {
+    text-align: center;
+    color: #666;
+    margin-bottom: 20px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+label {
+    display: block;
+    margin-bottom: 5px;
+    color: #333;
+}
+
+input[type="password"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.hint {
+    display: block;
+    color: #666;
+    font-size: 0.8em;
+    margin-top: 5px;
+}
+
+button {
+    width: 100%;
+    padding: 12px;
+    background: #4A90E2;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+button:hover {
+    background: #357ABD;
+}
+
+.form-footer {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.back-link {
+    color: #4A90E2;
+    text-decoration: none;
+}
+
+.back-link:hover {
+    text-decoration: underline;
+}
+
+.alert {
+    padding: 10px;
+    margin-bottom: 20px;
+    border-radius: 4px;
+}
+
+.alert-error {
+    background: #ffebee;
+    color: #c62828;
+}
+
+.alert-success {
+    background: #e8f5e9;
+    color: #2e7d32;
+}

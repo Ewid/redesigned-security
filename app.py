@@ -290,20 +290,23 @@ def setup_security():
 @app.route('/reset_password', methods=['GET', 'POST'])
 def reset_password():
     if not session.get('can_reset_password') or not session.get('reset_user_id'):
+        flash('Password reset session expired. Please start over.', 'error')
         return redirect(url_for('forgot_password'))
     
     if request.method == 'POST':
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
         
+        if not password or not confirm_password:
+            flash('Both fields are required', 'error')
+            return render_template('reset_password.html')
+            
         if password != confirm_password:
             flash('Passwords do not match', 'error')
             return render_template('reset_password.html')
             
-        # Validate password
-        is_valid, message = validate_password(password)
-        if not is_valid:
-            flash(message, 'error')
+        if len(password) < 12:
+            flash('Password must be at least 12 characters long', 'error')
             return render_template('reset_password.html')
             
         try:
@@ -311,16 +314,16 @@ def reset_password():
             user.password = generate_password_hash(password, method='pbkdf2:sha256', salt_length=16)
             db.session.commit()
             
-            # Clear all reset-related session data
+            # Clear reset-related session data
             session.pop('can_reset_password', None)
             session.pop('reset_user_id', None)
             session.pop('reset_username', None)
             
-            flash('Password has been reset successfully', 'success')
+            flash('Password has been reset successfully! You can now login with your new password.', 'success')
             return redirect(url_for('login'))
         except:
-            flash('Error resetting password', 'error')
-    
+            flash('An error occurred. Please try again.', 'error')
+            
     return render_template('reset_password.html')
 
 @app.route('/forgot_password', methods=['GET', 'POST'])
